@@ -73,19 +73,31 @@ fmt_duration() {
 }
 
 while true; do
-    # Fetch the latest block from the local node and from the public network
-    LOCAL_RAW=$(curl -s --max-time 10 -X POST http://127.0.0.1:8090/wallet/getnowblock)
-    NET_RAW=$(curl -s --max-time 10 https://api.trongrid.io/wallet/getnowblock)
 
-    LOCAL=$(echo "$LOCAL_RAW" | jq -r ".block_header.raw_data.number" 2>/dev/null)
-    NET=$(echo "$NET_RAW" | jq -r ".block_header.raw_data.number" 2>/dev/null)
+    # Fetch the latest block height from the local node
+    LOCAL_RAW=$(curl -s --max-time 30 \
+        -X POST http://127.0.0.1:8090/wallet/getnowblock)
+    LOCAL=$(echo "$LOCAL_RAW" | jq -r \
+        ".block_header.raw_data.number" 2>/dev/null)
+
+    # Fetch the latest block height from the public network via JSON-RPC (returned as a hex string)
+    NET_HEX=$(curl -s --max-time 30 \
+        https://api.trongrid.io/jsonrpc \
+        -H "Content-Type: application/json" \
+        -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' \
+        | jq -r '.result' 2>/dev/null)
+    if [[ "$NET_HEX" =~ ^0x[0-9a-fA-F]+$ ]]; then
+        NET=$((NET_HEX))
+    else
+        NET=""
+    fi
 
     NOW_TS=$(date +%s)
     NOW_HUMAN=$(date "+%Y-%m-%d %H:%M:%S")
 
     # Bail out of this iteration if either response didn't contain a valid number
     if ! [[ "$LOCAL" =~ ^[0-9]+$ ]] || ! [[ "$NET" =~ ^[0-9]+$ ]]; then
-        echo -e "${YELLOW}[$NOW_HUMAN] Error: Local='$LOCAL' Network='$NET'${NC}"
+        echo -e "${YELLOW}[$NOW_HUMAN] Error: Local='$LOCAL' Network='$NET_HEX'${NC}"
         sleep "$INTERVAL"
         continue
     fi
@@ -138,7 +150,13 @@ while true; do
         REMAIN_COLOR="${WHITE}${REMAIN}${NC}"
     fi
 
-    echo -e "${CYAN}[$NOW_HUMAN]${NC} Local=${BOLD}$LOCAL${NC}${LOCAL_DELTA} Network=${BOLD}$NET${NC}${NET_DELTA} Remain=${REMAIN_COLOR}${REMAIN_DELTA} Speed=${YELLOW}${SPEED} blk/s${NC} ETA=${ETA_COLOR}${ETA}${NC}"
+    echo -e \
+"${CYAN}[$NOW_HUMAN]${NC} \
+Local=${BOLD}$LOCAL${NC}${LOCAL_DELTA} \
+Network=${BOLD}$NET${NC}${NET_DELTA} \
+Remain=${REMAIN_COLOR}${REMAIN_DELTA} \
+Speed=${YELLOW}${SPEED} blk/s${NC} \
+ETA=${ETA_COLOR}${ETA}${NC}"
 
     PREV_LOCAL=$LOCAL
     PREV_NET=$NET
