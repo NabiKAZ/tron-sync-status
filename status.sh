@@ -39,6 +39,11 @@ ETA_COLOR='\033[1;36m'
 BOLD='\033[1m'
 NC='\033[0m'
 
+# Below this Remain value, small block-count jitter (caused by the two
+# API calls not being fetched perfectly simultaneously) is treated as
+# "essentially synced" rather than "not closing".
+NEAR_SYNC_THRESHOLD=10
+
 # Previous-iteration values, used to compute deltas / speed / ETA
 PREV_LOCAL=""
 PREV_NET=""
@@ -114,10 +119,18 @@ while true; do
             # Local sync speed in blocks/second
             SPEED=$(printf "%.2f" "$(echo "scale=4; $DB/$DT" | bc)")
 
+            # Near the tip, Remain naturally jitters by a handful of blocks
+            # from one sample to the next: the two API calls aren't fetched
+            # atomically, so timing/latency differences of a fraction of a
+            # block interval show up as +/- a few blocks in Remain. Treat
+            # that as synced instead of feeding it into the closing-rate
+            # calculation.
+            if [[ $REMAIN -le $NEAR_SYNC_THRESHOLD ]]; then
+                ETA="Synced"
             # ETA is based on how fast the gap (Remain) itself is shrinking,
             # not just local speed — this accounts for the network also
             # producing new blocks while we sync.
-            if [[ $DR -lt 0 ]]; then
+            elif [[ $DR -lt 0 ]]; then
                 CLOSE_RATE=$((-DR))  # blocks the gap shrank by in DT seconds
                 ETA_SEC=$(echo "$REMAIN * $DT / $CLOSE_RATE" | bc)
                 if [[ "$ETA_SEC" =~ ^[0-9]+$ ]]; then
